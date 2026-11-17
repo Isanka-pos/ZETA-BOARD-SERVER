@@ -1,6 +1,7 @@
-# Zeta Board Server
+# Zeta Board Server (Vercel)
 
-Small Express + MongoDB Atlas server for two things the Android app needs:
+Small Express + MongoDB Atlas backend for two things the Android app needs, built to run
+as Vercel serverless functions.
 
 1. **Updates** — `GET /api/update` tells the app the newest version (replaces checking
    GitHub directly). `POST /api/update` (admin key required) publishes a new one.
@@ -11,44 +12,64 @@ Small Express + MongoDB Atlas server for two things the Android app needs:
 There's also a one-page admin panel at `/` so you can publish updates and send messages
 from a browser instead of curl/Postman.
 
+## How it's structured for Vercel
+
+- `api/index.js` — the one serverless function. It just exports the Express app from `app.js`.
+- `vercel.json` — sends every request (`/`, `/api/update`, `/api/messages`, …) to that one function.
+- `db.js` — caches the MongoDB connection across warm invocations (a fresh connection on every
+  request would exhaust Atlas's connection limit).
+- `server.js` — only for running it on your own machine (`npm start`); Vercel never touches this file.
+
 ## 1. MongoDB Atlas
 
-Use your existing Atlas cluster, or create a free one. Grab the connection string from
-**Database → Connect → Drivers** — it looks like:
+Use your existing cluster, or create a free one. Grab the connection string from
+**Database → Connect → Drivers**:
 
 ```
 mongodb+srv://user:pass@cluster0.mongodb.net/zetaboard?retryWrites=true&w=majority
 ```
 
-## 2. Deploy to Heroku
+**Important for Vercel:** in Atlas → **Network Access**, add `0.0.0.0/0` as an allowed IP.
+Vercel's serverless functions run on rotating IPs, so you can't whitelist a fixed one.
+
+## 2. Deploy to Vercel
+
+Easiest way — through the dashboard:
+
+1. Push this folder to a new GitHub repo.
+2. On vercel.com -> **Add New -> Project** -> import that repo.
+3. Before deploying, add two **Environment Variables**:
+   - `MONGODB_URI` = your Atlas connection string
+   - `ADMIN_KEY` = a long random secret you make up
+4. Deploy. Vercel gives you a URL like `https://zeta-board-server.vercel.app`.
+
+Or with the CLI:
 
 ```bash
+npm i -g vercel
 cd zeta-board-server
-heroku create your-app-name
-heroku config:set MONGODB_URI="mongodb+srv://..." ADMIN_KEY="pick-a-long-random-secret"
-git init
-git add .
-git commit -m "init"
-heroku git:remote -a your-app-name
-git push heroku main
+vercel login
+vercel --prod
+vercel env add MONGODB_URI
+vercel env add ADMIN_KEY
+vercel --prod   # redeploy so the new env vars take effect
 ```
 
-Your server will be live at `https://your-app-name.herokuapp.com`.
-
-Open that URL in a browser, paste your `ADMIN_KEY` into the admin panel and press Save —
-from then on the panel remembers it in that browser.
+Open the deployed URL in a browser, paste your `ADMIN_KEY` into the admin panel and press
+Save - that browser remembers it from then on.
 
 ## 3. Point the app at it
 
-In the Android project, open `app/src/main/java/com/zeta/board/Updater.kt` and set:
+In the Android project, open `app/src/main/java/com/zeta/board/Updater.kt` and `Messages.kt`
+and set the same value in both:
 
 ```kotlin
-private const val SERVER_BASE = "https://your-app-name.herokuapp.com"
+private const val SERVER_BASE = "https://zeta-board-server.vercel.app"
 ```
 
-That's the only change needed — the app already tries this server first, and falls back
-to the GitHub release (`update.json` / GitHub API) if the server is unreachable, so
-nothing breaks if Heroku's free dyno is asleep or down.
+That's the only change needed - the app already tries this server first for updates, and
+falls back to the GitHub release (`update.json` / GitHub API) if it's unreachable, so nothing
+breaks if the function is cold or down.
 
 ## API reference
 
@@ -76,7 +97,7 @@ Returns an array of active messages, newest first:
 ### `DELETE /api/messages/:id`  (header `x-admin-key: <ADMIN_KEY>`)
 Deactivates a message (kept in the database, just no longer returned to the app).
 
-## Local testing
+## Running it locally
 
 ```bash
 npm install
