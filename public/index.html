@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zeta Board Server</title>
+<style>
+  :root{
+    --bg:#0a0a12; --panel:#121224; --border:#2a2a44; --text:#e8e8ff;
+    --muted:#8888aa; --accent:#8b5cf6; --accent2:#22d3ee; --ok:#22c55e; --err:#f43f5e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,sans-serif;
+    background-image:radial-gradient(circle at 20% 0%, rgba(139,92,246,.15), transparent 40%),
+                      radial-gradient(circle at 80% 100%, rgba(34,211,238,.12), transparent 40%);
+    min-height:100vh;padding:24px;}
+  .wrap{max-width:720px;margin:0 auto;}
+  h1{font-size:1.4rem;margin:0 0 4px;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  p.sub{color:var(--muted);margin:0 0 24px;font-size:.9rem;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:18px;
+    box-shadow:0 0 0 1px rgba(139,92,246,.05), 0 8px 24px rgba(0,0,0,.3);}
+  .card h2{font-size:1rem;margin:0 0 14px;color:var(--accent2);}
+  label{display:block;font-size:.78rem;color:var(--muted);margin:10px 0 4px;}
+  input,textarea,select{width:100%;background:#0d0d1a;border:1px solid var(--border);border-radius:8px;
+    color:var(--text);padding:9px 10px;font-size:.9rem;font-family:inherit;}
+  textarea{min-height:70px;resize:vertical;}
+  button{margin-top:14px;background:linear-gradient(90deg,var(--accent),#6d28d9);border:none;color:#fff;
+    padding:10px 16px;border-radius:8px;font-size:.88rem;font-weight:600;cursor:pointer;}
+  button:hover{filter:brightness(1.1);}
+  .row{display:flex;gap:10px;}
+  .row > div{flex:1;}
+  .status{font-size:.82rem;margin-top:10px;min-height:1.2em;}
+  .status.ok{color:var(--ok);}
+  .status.err{color:var(--err);}
+  .key-bar{display:flex;gap:8px;align-items:center;margin-bottom:20px;}
+  .key-bar input{flex:1;}
+  .list{margin-top:10px;}
+  .msg-row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;
+    border-top:1px solid var(--border);font-size:.82rem;}
+  .msg-row:first-child{border-top:none;}
+  .msg-row b{color:var(--accent2);}
+  .msg-row small{color:var(--muted);}
+  .msg-row button{margin:0;padding:4px 10px;font-size:.75rem;background:transparent;border:1px solid var(--err);color:var(--err);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Zeta Board Server</h1>
+  <p class="sub">Push a new app version or an in-app announcement. Keep this tab private - anyone with your admin key can publish.</p>
+
+  <div class="card">
+    <div class="key-bar">
+      <input id="adminKey" type="password" placeholder="Admin key (ADMIN_KEY)">
+      <button onclick="saveKey()">Save</button>
+    </div>
+    <span class="status" id="keyStatus"></span>
+  </div>
+
+  <div class="card">
+    <h2>Publish update</h2>
+    <div class="row">
+      <div>
+        <label>Version code (number, e.g. 42)</label>
+        <input id="versionCode" type="number">
+      </div>
+      <div>
+        <label>Version name (e.g. 1.0.42)</label>
+        <input id="versionName" type="text">
+      </div>
+    </div>
+    <label>APK download URL</label>
+    <input id="apkUrl" type="text" placeholder="https://github.com/.../ZetaBoard.apk">
+    <label>What's new</label>
+    <textarea id="updateNotes" placeholder="- fixed crash on...&#10;- added..."></textarea>
+    <label><input style="width:auto" type="checkbox" id="mandatory"> Mandatory update</label>
+    <button onclick="publishUpdate()">Publish update</button>
+    <div class="status" id="updateStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2>Send message / announcement</h2>
+    <label>Title</label>
+    <input id="msgTitle" type="text" placeholder="e.g. New sticker pack added">
+    <label>Message</label>
+    <textarea id="msgBody" placeholder="Shown inside the app"></textarea>
+    <label>Type</label>
+    <select id="msgType">
+      <option value="info">Info</option>
+      <option value="warning">Warning</option>
+      <option value="promo">Promo</option>
+    </select>
+    <button onclick="sendMessage()">Send message</button>
+    <div class="status" id="msgStatus"></div>
+
+    <div class="list" id="msgList"></div>
+  </div>
+</div>
+
+<script>
+function getKey(){ return localStorage.getItem('adminKey') || ''; }
+function saveKey(){
+  localStorage.setItem('adminKey', document.getElementById('adminKey').value.trim());
+  document.getElementById('keyStatus').textContent = 'Saved for this browser.';
+  document.getElementById('keyStatus').className = 'status ok';
+  loadMessages();
+}
+document.getElementById('adminKey').value = getKey();
+
+async function publishUpdate(){
+  const body = {
+    versionCode: Number(document.getElementById('versionCode').value),
+    versionName: document.getElementById('versionName').value.trim(),
+    apkUrl: document.getElementById('apkUrl').value.trim(),
+    notes: document.getElementById('updateNotes').value,
+    mandatory: document.getElementById('mandatory').checked
+  };
+  const el = document.getElementById('updateStatus');
+  try{
+    const r = await fetch('/api/update', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','x-admin-key':getKey()},
+      body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.error || 'failed');
+    el.textContent = 'Published v' + body.versionName + ' ✓';
+    el.className = 'status ok';
+  }catch(e){
+    el.textContent = e.message;
+    el.className = 'status err';
+  }
+}
+
+async function sendMessage(){
+  const body = {
+    title: document.getElementById('msgTitle').value.trim(),
+    body: document.getElementById('msgBody').value.trim(),
+    type: document.getElementById('msgType').value
+  };
+  const el = document.getElementById('msgStatus');
+  try{
+    const r = await fetch('/api/messages', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','x-admin-key':getKey()},
+      body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.error || 'failed');
+    el.textContent = 'Sent ✓';
+    el.className = 'status ok';
+    document.getElementById('msgTitle').value='';
+    document.getElementById('msgBody').value='';
+    loadMessages();
+  }catch(e){
+    el.textContent = e.message;
+    el.className = 'status err';
+  }
+}
+
+async function loadMessages(){
+  const list = document.getElementById('msgList');
+  try{
+    const r = await fetch('/api/messages');
+    const msgs = await r.json();
+    list.innerHTML = msgs.map(m => `
+      <div class="msg-row">
+        <div><b>${m.title}</b><br><small>${m.body}</small></div>
+        <button onclick="deleteMessage('${m._id}')">remove</button>
+      </div>`).join('') || '<div class="msg-row"><small>No messages yet.</small></div>';
+  }catch(e){}
+}
+
+async function deleteMessage(id){
+  await fetch('/api/messages/' + id, { method:'DELETE', headers:{'x-admin-key':getKey()} });
+  loadMessages();
+}
+
+loadMessages();
+</script>
+</body>
+</html>
