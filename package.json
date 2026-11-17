@@ -4,7 +4,7 @@
   "description": "Update + in-app messages server for Zeta Board",
   "main": "server.js",
   "engines": {
-    "node": "18.x"
+    "node": "26.x"
   },
   "scripts": {
     "start": "node server.js"
